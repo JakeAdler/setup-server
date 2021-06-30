@@ -1,0 +1,164 @@
+---
+- hosts: all
+  become: true
+  tasks:
+    - name: Install Prerequisites
+      apt: name=aptitude update_cache=yes state=latest force_apt_get=yes
+
+    # Setup apt
+    - name: Update apt
+      apt: update_cache=yes
+
+    - name: Install required system packages
+      apt: name={{ sys_packages }} state=latest
+
+    # Docker
+    - name: Install docker packages
+      apt: name={{ docker_packages }} state=latest
+
+    - name: Add an apt signing key for Docker
+      apt_key:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        state: present
+
+    - name: Add apt repository for stable version
+      apt_repository:
+        repo: deb [arch=amd64] https://download.docker.com/linux/ubuntu focal stable
+        state: present
+
+    - name: Install Docker
+      apt:
+        name: "{{ packages }}"
+        state: present
+        update_cache: yes
+      vars:
+        packages:
+        - docker-ce
+        - docker-ce-cli 
+        - containerd.io
+
+    - name: Create a new regular user with sudo and docker privileges
+      user:
+        name: "{{ create_user_name }}"
+        password: "{{ create_user_pass | password_hash('sha512') }}"
+        state: present
+        groups: sudo,docker
+        append: true
+        create_home: false # We will do this later
+        shell: /bin/zsh
+
+    - name: Download docker-compose {{ docker_compose_version }}
+      get_url:
+        url : https://github.com/docker/compose/releases/download/{{ docker_compose_version }}/docker-compose-Linux-x86_64
+        dest: ~/docker-compose
+        mode: '+x'
+
+    - name: Check docker-compose exists
+      stat: path=~/docker-compose
+      register: docker_compose
+
+    - name: Move docker-compose to /usr/local/bin/docker-compose
+      command: mv ~/docker-compose /usr/local/bin/docker-compose
+      when: docker_compose.stat.exists
+
+    # iptables config (for docker)
+    - name: create /etc/iptables.conf
+      template:
+        src: ./templates/iptables.j2
+        dest: /etc/iptables.conf
+
+    - name: load /etc/iptables.conf into kernel
+      community.general.iptables_state:
+        state: restored
+        path: /etc/iptables.conf
+        noflush: true
+      async: "{{ ansible_timeout }}"
+      poll: 0
+
+
+    # SSH security
+
+    - name: Enable X11Forwarding
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        state: present
+        regexp: '^#?X11Forwarding'
+        line: 'X11Forwarding yes '
+
+    - name: Disable X11UseLocalhost
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        state: present
+        regexp: '^#?X11UseLocalhost'
+        line: 'X11UseLocalhost no '
+
+    - name: Enable PubkeyAuthentication
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        state: present
+        regexp: '^#?PubkeyAuthentication'
+        line: 'PubkeyAuthentication yes '
+
+    - name: Disable password authentication
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        state: present
+        regexp: '^#?PasswordAuthentication'
+        line: 'PasswordAuthentication no'
+
+    - name: Disable root ssh
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        state: present
+        regexp: '^#?PermitRootLogin'
+        line: 'PermitRootLogin no'
+
+    - name: Restart sshd
+      service:
+        name: sshd
+        state: restarted
+
+    # Convenience
+    - name: Install starship prompt
+      include_role: 
+        name: andrewrothstein.starship
+
+    - name: Remove default /etc/skel
+      file:
+        state: absent
+        path: /etc/skel
+
+    - name: Copy our /etc/skel
+      copy:
+        src: "{{ playbook_dir }}/templates/skel"
+        dest: /etc
+
+    - name: Copy skel items to root
+      copy: 
+        src: "{{ item }}" 
+        dest: /root/
+        remote_src: yes
+      with_items:
+        - '/etc/skel/.config'
+        - '/etc/skel/.zshenv'
+
+    - name: Change root shell
+      shell: chsh -s /bin/zsh
+
+    - name: Change DSHELL in /etc/adduser.conf
+      lineinfile:
+        path: /etc/adduser.conf
+        state: present
+        regexp: '^#?DSHELL'
+        line: 'DSHELL=/bin/zsh'
+    
+    - name: Create homedir for new user
+      shell: mkhomedir_helper {{ create_user_name | quote }}
+
+    - name: Copy ssh key to user 
+      copy:
+        src: /root/.ssh
+        dest: "/home/{{ create_user_name }}"
+        remote_src: yes
+        owner: "{{ create_user_name }}"
+        group: "{{ create_user_name }}"
