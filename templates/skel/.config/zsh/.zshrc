@@ -7,6 +7,7 @@ alias l="ls"
 
 alias c="clear"
 alias cdc="cd && clear"
+alias ..="cd ../"
 
 # Lines configured by zsh-newuser-install
 HISTFILE=~/.config/zsh/.history

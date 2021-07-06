@@ -1,6 +1,7 @@
 ---
 - hosts: all
   become: true
+  become_method: su
   tasks:
     - name: Install Prerequisites
       apt: name=aptitude update_cache=yes state=latest force_apt_get=yes
@@ -13,7 +14,7 @@
       apt: name={{ sys_packages }} state=latest
 
     # Docker
-    - name: Install docker packages
+    - name: Install docker dependency packages
       apt: name={{ docker_packages }} state=latest
 
     - name: Add an apt signing key for Docker
@@ -60,21 +61,6 @@
     - name: Move docker-compose to /usr/local/bin/docker-compose
       command: mv ~/docker-compose /usr/local/bin/docker-compose
       when: docker_compose.stat.exists
-
-    # iptables config (for docker)
-    - name: create /etc/iptables.conf
-      template:
-        src: ./templates/iptables.j2
-        dest: /etc/iptables.conf
-
-    - name: load /etc/iptables.conf into kernel
-      community.general.iptables_state:
-        state: restored
-        path: /etc/iptables.conf
-        noflush: true
-      async: "{{ ansible_timeout }}"
-      poll: 0
-
 
     # SSH security
 
@@ -155,9 +141,19 @@
     - name: Create homedir for new user
       shell: mkhomedir_helper {{ create_user_name | quote }}
 
-    - name: Copy ssh key to user 
+    - name: Copy ssh key from inital user to new user 
+      when: remote_user_name != "root"
       copy:
-        src: /root/.ssh
+        src: "/home/{{ remote_user_name }}/.ssh"
+        dest: "/home/{{ create_user_name }}"
+        remote_src: yes
+        owner: "{{ create_user_name }}"
+        group: "{{ create_user_name }}"
+
+    - name: Copy ssh key from root to new user 
+      when: remote_user_name == "root"
+      copy:
+        src: "/root/.ssh"
         dest: "/home/{{ create_user_name }}"
         remote_src: yes
         owner: "{{ create_user_name }}"

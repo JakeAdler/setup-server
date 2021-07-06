@@ -42,7 +42,6 @@ get_user_name() {
 }
 
 get_user_pass() {
-
 	read -sp 'Password: ' CREATE_PASS
 	echo
 	read -sp 'Confirm Password: ' CREATE_PASS_CONFIRM
@@ -60,6 +59,23 @@ get_user_creds() {
 	get_user_pass
 }
 
+get_new_ssh_key() {
+	echo "Generating new SSH key"
+
+	read -p "What would you like to call this key?: " SSH_KEY_NAME
+	echo
+
+	SSH_KEY_PATH="$HOME/.ssh/$SSH_KEY_NAME"
+	SSH_PUBKEY_PATH="$SSH_KEY_PATH.pub"
+
+	ssh-keygen -t rsa -b 4096 -f "$SSH_KEY_PATH"
+}
+
+get_existing_ssh_key() {
+	read -ep "Enter path to existing ssh key: " -i "$HOME/.ssh/" SSH_KEY_PATH
+	echo
+}
+
 get_ssh_key() {
 
 	echo "SSH Key:"
@@ -75,26 +91,32 @@ get_ssh_key() {
 		get_ssh_key
 
 	if [ "$USE_EXISTING_KEY" = 0 ]; then
-
-		echo "Generating new SSH key"
-
-		read -p "What would you like to call this key?: " SSH_KEY_NAME
-		echo
-
-		SSH_KEY_PATH="$HOME/.ssh/$SSH_KEY_NAME"
-		SSH_PUBKEY_PATH="$SSH_KEY_PATH.pub"
-
-		ssh-keygen -t rsa -b 4096 -f "$SSH_KEY_PATH"
+		get_new_ssh_key
 	fi
 
 	if [ "$USE_EXISTING_KEY" = 1 ]; then
-		read -ep "Enter path to existing ssh key: " -i "$HOME/.ssh/" SSH_KEY_PATH
-		echo
+		get_existing_ssh_key
 	fi
 }
 
+get_remote_user() {
+	echo "Enter the username to use for SSH for $IP_ADDR:"
+	read -p "Username: " REMOTE_USER
+	echo
+}
+
+get_remote_login_method() {
+	PS3="Enter a number: "
+
+	select method in "SSH" "Password"
+	do
+		echo "Selected method: $method"
+		REMOTE_METHOD="$method"
+		break
+	done
+}
 get_remote_pass() {
-	echo "Enter the password for root@$IP_ADDR:"
+	echo "Enter the password for $REMOTE_USER@$IP_ADDR:"
 	read -sp "Password: " REMOTE_PASS
 	echo
 
@@ -108,8 +130,11 @@ sys_packages: [ 'curl', 'vim', 'git', 'gnupg', 'zsh' ]
 docker_packages: ['apt-transport-https', 'ca-certificates', 'software-properties-common' ]
 docker_compose_version: 1.29.2
 
+ansible_become_pass: $REMOTE_PASS
 create_user_name: $CREATE_USER
 create_user_pass: $CREATE_PASS
+remote_user_name: $REMOTE_USER
+remote_user_pass: $REMOTE_PASS
 EOF
 
 	# Host
@@ -126,21 +151,31 @@ clear
 echo -e "### REMOTE MACHINE ### \n"
 
 get_ip_addr
-get_remote_pass
+get_remote_user
+get_remote_login_method
+
+[ "$REMOTE_METHOD" = "SSH" ] && get_existing_ssh_key
+[ "$REMOTE_METHOD" = "Password" ] && get_remote_pass
 
 clear
 
 echo -e "### NEW USER ### \n"
 
-get_ssh_key
+[ "$REMOTE_METHOD" = "Password" ] && get_ssh_key
+
 get_user_creds
 
-clear 
+clear
 
 write_data
 
-SSHPASS="$REMOTE_PASS" sshpass -e ssh-copy-id -o PubkeyAuthentication=no -fi "$SSH_KEY_PATH" "root@$IP_ADDR"
+[ "$REMOTE_METHOD" != "SSH" ] &&
+	SSHPASS="$REMOTE_PASS" sshpass -e ssh-copy-id -o PubkeyAuthentication=no -fi "$SSH_KEY_PATH" "$REMOTE_USER@$IP_ADDR"
 
 echo "Starting ansible playbook"
 
-SSHPASS="$REMOTE_PASS" sshpass -e ansible-playbook --ask-pass --user root -e "@$__TEMP_VARS_FILE" -i "$__TEMP_HOSTS_FILE" "$__DIR/playbook.yml"
+[ "$REMOTE_METHOD" = "SSH" ] &&
+	ansible-playbook --private-key "$SSH_KEY_PATH" --user "$REMOTE_USER" -e "@$__TEMP_VARS_FILE" -i "$__TEMP_HOSTS_FILE" "$__DIR/playbook.yml"
+
+[ "$REMOTE_METHOD" = "Password" ] &&
+	SSHPASS="$REMOTE_PASS" sshpass -e ansible-playbook --ask-pass --user "$REMOTE_USER" -e "@$__TEMP_VARS_FILE" -i "$__TEMP_HOSTS_FILE" "$__DIR/playbook.yml"
