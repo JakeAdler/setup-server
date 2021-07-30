@@ -13,8 +13,6 @@ An ansible playbook and companion script to setup a fresh Ubuntu server.
 
 ## Installation 
 
-You can also run either of the following commands to update the script.
-
 Short URL
 ```console
 $ curl -fsSL 'https://git.io/JcZ7D' | sudo bash
@@ -23,6 +21,8 @@ Full URL
 ```console
 $ curl -fsSL 'https://raw.githubusercontent.com/JakeAdler/setup-server/master/install.sh' | sudo bash
 ```
+
+You can also run either of the following commands to update the script.
 
 ## Usage
 

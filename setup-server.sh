@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 __DIR=$(dirname $0)
 __TEMP_DIR="/tmp/setup-server"
@@ -78,7 +78,7 @@ get_existing_ssh_key() {
 
 get_ssh_key() {
 
-	echo "SSH Key:"
+	echo "Adding SSH key to remote machine:"
 	echo "0) generate a new one"
 	echo "1) use existing"
 
@@ -116,7 +116,7 @@ get_remote_login_method() {
 	done
 }
 get_remote_pass() {
-	echo "Enter the password for $REMOTE_USER@$IP_ADDR:"
+	echo "Enter the password for the REMOTE MACHINE $REMOTE_USER@$IP_ADDR:"
 	read -sp "Password: " REMOTE_PASS
 	echo
 
@@ -126,7 +126,7 @@ write_data() {
 	# Vars
 	cat <<EOF >"$__TEMP_VARS_FILE"
 ---
-sys_packages: [ 'curl', 'vim', 'git', 'gnupg', 'zsh' ]
+sys_packages: [ 'curl', 'vim', 'git', 'gnupg', 'zsh', 'net-tools' ]
 docker_packages: ['apt-transport-https', 'ca-certificates', 'software-properties-common' ]
 docker_compose_version: 1.29.2
 
@@ -161,9 +161,10 @@ clear
 
 echo -e "### NEW USER ### \n"
 
+get_user_creds
+
 [ "$REMOTE_METHOD" = "Password" ] && get_ssh_key
 
-get_user_creds
 
 clear
 
